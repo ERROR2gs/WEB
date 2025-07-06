@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Admin Panel – ERROR VIP</title>
+  <style>
+    body {
+      background-color: #f5f0fa;
+      color: #2c2358;
+      font-family: 'Segoe UI', sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+    h1 {
+      text-align: center;
+      color: #6a0dad;
+      font-size: 24px;
+      margin-bottom: 20px;
+    }
+    .card {
+      background-color: #ffffff;
+      border: 2px solid #d3bce3;
+      border-radius: 10px;
+      padding: 20px;
+      max-width: 600px; /* Slightly wider for better table display */
+      margin: 20px auto;
+      box-shadow: 0 4px 8px rgba(106, 13, 173, 0.1);
+    }
+    input, button {
+      width: 100%;
+      padding: 0.75rem;
+      margin-top: 10px;
+      font-size: 1rem;
+      height: 2.5rem;
+      border: 1px solid #c9a9e0;
+      border-radius: 8px;
+      box-sizing: border-box;
+    }
+    input[type="number"] {
+      -moz-appearance: textfield;
+    }
+    input::-webkit-outer-spin-button,
+    input::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    .flex-row {
+      display: flex;
+      gap: 10px;
+    }
+    .flex-row input {
+      flex: 1;
+    }
+    button {
+      background-color: #6a0dad;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #5c0bb3;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+      font-size: 13px;
+    }
+    th, td {
+      padding: 10px;
+      text-align: center;
+      border: 1px solid #e0d0f0;
+    }
+    th {
+      background-color: #ead7f8;
+      color: #3d245e;
+    }
+  </style>
+</head>
+<body>
+  <h1>ERROR VIP – Admin Panel</h1>
+
+  <div class="card">
+    <div class="flex-row">
+      <input type="text" id="keyInput" placeholder="Key will be auto-generated" readonly />
+      <button onclick="generateRandomKey()">Generate</button>
+    </div>
+    <input type="number" id="deviceLimit" placeholder="Max devices (e.g., 3)" />
+    <input type="number" id="validityDays" placeholder="Validity in days" />
+    <button onclick="createKey()">Create Key</button>
+  </div>
+
+  <div class="card">
+    <h2 style="text-align:center; color:#6a0dad;">All Keys</h2>
+    <table id="keysTable">
+      <thead>
+        <tr>
+          <th>Key</th>
+          <th>Expires</th>
+          <th>Max Devices</th>
+          <th>Active Devices</th>
+          <th>Last Used</th>
+          <th>Usage Count</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AlzaSyBG1ZPt3VMGIKuGflHdRecSZHx5puY99Xs",
+      authDomain: "error-57ad4.firebaseapp.com",
+      databaseURL: "https://error-57ad4-default-rtdb.firebaseio.com",
+      projectId: "error-57ad4",
+      storageBucket: "error-57ad4.appspot.com",
+      messagingSenderId: "445412492654",
+      appId: "1:445412492654:android:2e75c3341086e4eb9a6d7f"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    function generateRandomKey(length = 16) {
+      const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+      let key = "";
+      for (let i = 0; i < length; i++) {
+        key += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      document.getElementById('keyInput').value = key;
+      return key;
+    }
+
+    function createKey() {
+      const key = document.getElementById('keyInput').value.trim();
+      const maxDevices = parseInt(document.getElementById('deviceLimit').value);
+      const validity = parseInt(document.getElementById('validityDays').value);
+      if (!key || !maxDevices || !validity) {
+        alert("Fill all fields.");
+        return;
+      }
+      const now = Date.now();
+      const expiry = now + validity * 86400000;
+      db.ref('users/' + key).set({
+        createdAt: now,
+        expiresAt: expiry,
+        maxDevices: maxDevices
+      }).then(() => {
+        loadKeys();
+        generateRandomKey();
+        document.getElementById('deviceLimit').value = '';
+        document.getElementById('validityDays').value = '';
+      }).catch(error => {
+        alert("Error creating key: " + error.message);
+      });
+    }
+
+    function loadKeys() {
+      const tbody = document.querySelector("#keysTable tbody");
+      tbody.innerHTML = "<tr><td colspan='7'>Loading...</td></tr>";
+      db.ref('users').once('value').then(snapshot => {
+        const data = snapshot.val() || {};
+        tbody.innerHTML = "";
+        const promises = Object.keys(data).map(key => {
+          const k = data[key];
+          const now = Date.now();
+          const expired = now > k.expiresAt;
+          return Promise.all([
+            db.ref('active_devices/' + key).once('value'),
+            db.ref('key_usage/' + key).once('value')
+          ]).then(([activeSnapshot, usageSnapshot]) => {
+            let activeDevices = activeSnapshot.val() || {};
+            const currentTime = Date.now();
+            const staleThreshold = 3600 * 1000;
+            Object.keys(activeDevices).forEach(deviceId => {
+              if (currentTime - activeDevices[deviceId].timestamp > staleThreshold) {
+                db.ref('active_devices/' + key + '/' + deviceId).remove();
+                delete activeDevices[deviceId];
+              }
+            });
+            const used = Object.keys(activeDevices).length;
+            const usage = usageSnapshot.val() || {};
+            const usageCount = Object.keys(usage).length;
+            const lastUsed = usageCount > 0 ? new Date(Object.values(usage)[usageCount - 1].timestamp).toLocaleString() : "Never";
+            const row = document.createElement("tr");
+            row.innerHTML = `
+              <td>${key}</td>
+              <td>${new Date(k.expiresAt).toLocaleDateString()}</td>
+              <td>${k.maxDevices || 1}</td>
+              <td>${used}</td>
+              <td>${lastUsed}</td>
+              <td>${usageCount}</td>
+              <td style="color:${expired ? 'red' : 'green'};">${expired ? 'Expired' : 'Active'}</td>
+              <td><button onclick="deleteKey('${key}')">Delete</button></td>
+            `;
+            tbody.appendChild(row);
+          });
+        });
+        Promise.all(promises).then(() => {
+          if (!Object.keys(data).length) {
+            tbody.innerHTML = "<tr><td colspan='7'>No keys found.</td></tr>";
+          }
+        });
+      }).catch(error => {
+        tbody.innerHTML = "<tr><td colspan='7'>Error loading keys: " + error.message + "</td></tr>";
+      });
+    }
+
+    function deleteKey(key) {
+      if (confirm("Delete key: " + key + "?")) {
+        Promise.all([
+          db.ref('users/' + key).remove(),
+          db.ref('active_devices/' + key).remove(),
+          db.ref('key_usage/' + key).remove()
+        ]).then(() => loadKeys()).catch(error => {
+          alert("Error deleting key: " + error.message);
+        });
+      }
+    }
+
+    window.onload = function() {
+      generateRandomKey();
+      loadKeys();
+    }
+  </script>
+</body>
+</html>
